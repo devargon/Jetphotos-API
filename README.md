@@ -154,6 +154,24 @@ If health works but search returns `403`, your current IP is blocked by JetPhoto
 
 CORS is open (`Access-Control-Allow-Origin: *`).
 
+### `GET /potd`
+
+Returns one JetPhotos photo for the current UTC date:
+
+```json
+{
+  "date": "2026-11-24",
+  "aircraft": "Boeing 747",
+  "photo": { "photoId": "12278357", "imageUrl": "https://cdn.jetphotos.com/full/..." }
+}
+```
+
+The first request of a UTC day searches JetPhotos; subsequent requests use the cached choice until midnight UTC. Days with no requests trigger no search. The aircraft family rotates by UTC date. If a family has no suitable results, the next family is tried. The search uses aircraft keywords (contains), JetPhotos likes sorting, and a minimum width of 1600 pixels. It selects from the first ten results with a photo ID, full image URL, and photo page URL. No airline, location, or photo year restriction is applied.
+
+The search list is: Airbus A220, A319, A320, A321, A330, A340, A350, A380; Boeing 737, 747, 757, 767, 777, 787; Embraer E190 (`ERJ-190-100`), E195 (`ERJ-190-200`), E190-E2 (`ERJ-190-300`), E195-E2 (`ERJ-190-400`); COMAC C919. The Embraer terms use JetPhotos' aircraft labels. Family searches can match multiple variants, including the A320neo and 737 MAX.
+
+The daily cache is local to the running Worker instance or Cloudflare location. Restarting a local instance can cause a new selection, and edge locations may select independently. JetPhotos requests can also fail when its anti-bot protection blocks the host.
+
 ---
 
 ## Hosting

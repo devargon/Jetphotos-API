@@ -13,6 +13,13 @@
 
 const DEFAULT_CACHE_TTL_SECONDS = 21600;
 const JETPHOTOS_BASE_URL = 'https://www.jetphotos.com/showphotos.php';
+const POTD_AIRCRAFT = [
+  'Airbus A220', 'Airbus A319', 'Airbus A320', 'Airbus A321',
+  'Airbus A330', 'Airbus A340', 'Airbus A350', 'Airbus A380',
+  'Boeing 737', 'Boeing 747', 'Boeing 757', 'Boeing 767',
+  'Boeing 777', 'Boeing 787', 'Embraer ERJ-190-100', 'Embraer ERJ-190-200',
+  'Embraer ERJ-190-300', 'Embraer ERJ-190-400', 'COMAC C919',
+];
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -52,11 +59,15 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
+  if (url.pathname === '/potd') {
+    return handlePotd(url, env, ctx);
+  }
+
   if (url.pathname !== '/' && url.pathname !== '/search') {
     return json(
       {
         error: 'Not found',
-        endpoints: ['/health', '/', '/search'],
+        endpoints: ['/health', '/', '/search', '/potd'],
       },
       404
     );
@@ -170,6 +181,45 @@ async function handleRequest(request, env, ctx) {
       500
     );
   }
+}
+
+async function handlePotd(url, env, ctx) {
+  const date = new Date().toISOString().slice(0, 10);
+  const secondsUntilMidnight = Math.max(0, Math.floor((Date.parse(`${date}T00:00:00.000Z`) + 86400000 - Date.now()) / 1000));
+  const cache = caches.default;
+  const cacheKey = new Request(`${url.origin}/__potd/v2/${date}`);
+  const cached = await cache.match(cacheKey);
+  if (cached) return json(await cached.json(), 200, { 'X-Cache': 'HIT', 'Cache-Control': `public, max-age=${secondsUntilMidnight}` });
+
+  const dayNumber = Math.floor(Date.parse(`${date}T00:00:00.000Z`) / 86400000);
+  let body;
+  for (let offset = 0; offset < POTD_AIRCRAFT.length; offset++) {
+    const aircraft = POTD_AIRCRAFT[(dayNumber + offset) % POTD_AIRCRAFT.length];
+    const params = new URLSearchParams({
+      'keywords': aircraft,
+      'keywords-type': 'aircraft',
+      'keywords-contain': '3',
+      'sort-order': '2',
+      'width': '1600',
+    });
+    const searchResponse = await handleRequest(new Request(new URL(`/search?${params}`, url)), env, ctx);
+    const results = await searchResponse.json();
+    if (!searchResponse.ok) return json({ error: 'Photo of the day search failed', date, details: results }, 502);
+
+    const candidates = (results.photos || []).filter((photo) =>
+      photo.photoId && photo.imageUrl !== 'N/A' && photo.photoPageUrl !== 'N/A'
+    );
+    if (candidates.length) {
+      // JetPhotos sorts these results by likes; rotate within the first ten.
+      body = { date, aircraft, photo: candidates[dayNumber % Math.min(candidates.length, 10)] };
+      break;
+    }
+  }
+  if (!body) return json({ error: 'No photo of the day candidates found', date }, 502);
+  await cache.put(cacheKey, new Response(JSON.stringify(body), {
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=${secondsUntilMidnight}` },
+  }));
+  return json(body, 200, { 'X-Cache': 'MISS', 'Cache-Control': `public, max-age=${secondsUntilMidnight}` });
 }
 
 function buildJetPhotosUrl(params) {

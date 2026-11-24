@@ -36,6 +36,22 @@ async function main() {
     process.exit(3);
   }
 
+  const potdRes = await fetch(`${base}/potd`);
+  const potd = await potdRes.json();
+  if (!potdRes.ok || !potd.photo?.photoId || potd.date !== new Date().toISOString().slice(0, 10)) {
+    throw new Error(`Photo of the day failed: ${JSON.stringify(potd)}`);
+  }
+  const repeatRes = await fetch(`${base}/potd`);
+  const repeat = await repeatRes.json();
+  if (repeat.photo?.photoId !== potd.photo.photoId || repeatRes.headers.get('X-Cache') !== 'HIT') {
+    throw new Error('Photo of the day did not remain cached');
+  }
+  const headRes = await fetch(`${base}/potd`, { method: 'HEAD' });
+  if (!headRes.ok || (await headRes.text()) !== '') {
+    throw new Error('Photo of the day HEAD response failed');
+  }
+  console.log('potd:', potd.date, potd.aircraft, potd.photo.photoId);
+
   console.log('PASS: free API returned photo results');
 }
 
